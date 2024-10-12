@@ -192,32 +192,39 @@ class ImageEditor(QMainWindow):
         if self.file_name:
             load_image = cv2.imread(self.file_name)
 
-            # convert the RGB image into grayscale
+            # Convert the RGB image into grayscale
             grey = cv2.cvtColor(load_image, cv2.COLOR_BGR2GRAY)
-            # reduce noise with median blur
+            # Reduce noise with median blur
             grey = cv2.medianBlur(grey, 5)
-            # detect edges using adaptive thresholding
+            # Detect edges using adaptive thresholding
             edges = cv2.adaptiveThreshold(grey, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 9)
 
-            # cartoonizing
+            # Compute gradients in the X and Y direction using the Sobel operator
+            grad_x = cv2.Sobel(grey, cv2.CV_64F, 1, 0, ksize=5)
+            grad_y = cv2.Sobel(grey, cv2.CV_64F, 0, 1, ksize=5)
+
+            # Compute the gradient magnitude and direction
+            magnitude = np.sqrt(grad_x**2 + grad_y**2)
+            direction = np.arctan2(grad_y, grad_x)
+
+            # Normalize the magnitude to a range of 0 to 255 for visualization purposes
+            magnitude = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
+
+            # Apply bilateral filtering on the original image
             color = cv2.bilateralFilter(load_image, 10, 250, 250)
             color = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
 
-            cartoon = cv2.bitwise_and(color, color, mask = edges)
-            # print(cartoon)
-            # cv2.imshow("Image", cartoon)
+            # Use the magnitude or direction (optionally) to influence the cartoon effect
+            # Here, we combine the edges with the color filtered image
+            cartoon = cv2.bitwise_and(color, color, mask=edges)
 
-            # cv2.waitKey(0)
-
-            # cartoon = cv2.cvtColor(color, cv2.COLOR_BGR2RGB)
-            
-            height, width, channel  = cartoon.shape
+            # Print or display the cartoon image
+            height, width, channel = cartoon.shape
             bytesPerLine = 3 * width
             Q_image = QImage(cartoon.data, width, height, bytesPerLine, QImage.Format_RGB888)
 
-            # save into image to edit
-            # debug
-            print("crashed at save to image_to_edit in cartoonize") 
+            # Save into image to edit
+            print("crashed at save to image_to_edit in cartoonize")
             self.image_to_edit = QPixmap.fromImage(Q_image)
             self.edited = True
             self.display_loaded_image()
@@ -226,6 +233,59 @@ class ImageEditor(QMainWindow):
 
     def content_dependent_warping(self):
         print("Content-Dependent Warping")
+        if self.file_name:
+            # Load the image
+            load_image = cv2.imread(self.file_name)
+            image_gray = cv2.cvtColor(load_image, cv2.COLOR_BGR2GRAY)
+
+            # Compute the energy map using the Sobel gradient
+            grad_x = cv2.Sobel(image_gray, cv2.CV_64F, 1, 0, ksize=3)
+            grad_y = cv2.Sobel(image_gray, cv2.CV_64F, 0, 1, ksize=3)
+            energy_map = np.abs(grad_x) + np.abs(grad_y)
+
+            # Initialize the cumulative energy map (for dynamic programming)
+            h, w = energy_map.shape
+            dp = np.copy(energy_map)
+            backtrack = np.zeros_like(dp, dtype=np.int32)
+
+            # Dynamic programming to calculate the minimum energy paths
+            for i in range(1, h):
+                for j in range(0, w):
+                    # Look at the three possible previous positions (above-left, above, above-right)
+                    min_cost = dp[i - 1, j]
+                    backtrack[i, j] = j
+                    if j > 0 and dp[i - 1, j - 1] < min_cost:
+                        min_cost = dp[i - 1, j - 1]
+                        backtrack[i, j] = j - 1
+                    if j < w - 1 and dp[i - 1, j + 1] < min_cost:
+                        min_cost = dp[i - 1, j + 1]
+                        backtrack[i, j] = j + 1
+                    dp[i, j] += min_cost
+
+            # Find the path of minimum energy
+            seam = np.zeros(h, dtype=np.int32)
+            seam[-1] = np.argmin(dp[-1])
+            for i in range(h - 2, -1, -1):
+                seam[i] = backtrack[i + 1, seam[i + 1]]
+
+            # Create a new image by warping or removing the seam
+            warped_image = np.zeros((h, w - 1, 3), dtype=np.uint8)
+            for i in range(h):
+                warped_image[i, :, :] = np.delete(load_image[i, :, :], seam[i], 0)
+
+            # Convert the result to QPixmap to display in the GUI
+            height, width, channel = warped_image.shape
+            bytes_per_line = 3 * width
+            q_image = QImage(warped_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
+
+            # Update the image to edit and display it
+            self.image_to_edit = QPixmap.fromImage(q_image)
+            self.edited = True
+            self.display_loaded_image()
+
+        else:
+            self.no_loaded_image()
+
 
     def mark_for_deletion_resizing(self):
         print("Mark for deletion and resizing")
