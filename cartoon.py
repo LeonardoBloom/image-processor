@@ -1,24 +1,32 @@
 import cv2
 import sys
 
-load_image = cv2.imread('sample3.jpg')
-print(load_image)
+def cartoonize(image):
 
-# convert the RGB image into grayscale
-grey = cv2.cvtColor(load_image, cv2.COLOR_RGB2GRAY)
-# reduce noise with median blur
-grey = cv2.medianBlur(grey, 5)
-# detect edges using adaptive thresholding
-edges = cv2.adaptiveThreshold(grey, 500, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 9)
+    # get chosen image
+    image = cv2.imread(image)
 
-# cartoonizing
-color = cv2.bilateralFilter(load_image, 10, 500, 505)
-# color = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
+    # convert the RGB image into grayscale
+    rgb_to_grayscale = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
-cartoon = cv2.bitwise_and(color, color, mask = edges)
+    # Reduce noise using median blur
+    blurImages = cv2.medianBlur(rgb_to_grayscale, 1)
+
+    # edge detection using adaptive threshold to overcome false prediction and illumination problems
+    edges = cv2.adaptiveThreshold(rgb_to_grayscale, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 9)
+
+    # apply bilateral filter
+    color = cv2.bilateralFilter(image, 9, 200, 200)
+    # adjust color orders to prevent image from showing blue
+    color = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
+
+    # finalize application of filter via bitwise and
+    cartoon = cv2.bitwise_and(color, color, mask = edges)
+
+    return cartoon
 
 
-print(cartoon)
-cv2.imshow("Image", cartoon)
 
-cv2.waitKey(0)
+# cartoonize = cartoon('sample3.jpg')
+# cv2.imshow("Image", cartoonize)
+# cv2.waitKey(0)

@@ -1,10 +1,11 @@
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QProgressDialog, QGraphicsPixmapItem, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, QFileDialog, QGraphicsView, QVBoxLayout, QApplication, QMainWindow, QWidget, QPushButton
-from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap, QImage, QPen, QPainter, QColor
+from PyQt5.QtCore import Qt, QRect, QRectF, QPointF
 import numpy as np
 import cv2
 import sys
+import Cartoon
 
 class ImageEditor(QMainWindow):
 
@@ -15,13 +16,25 @@ class ImageEditor(QMainWindow):
         self.loaded_program = False
         self.edited = False
 
-        self.graphics_view = QGraphicsView()
         self.scene = QGraphicsScene()
+        self.graphics_view = QGraphicsView()
 
         self.file_name = ""
         self.image_item = QGraphicsPixmapItem()
+        self.theImage = None
         self.loaded_image = QPixmap(None)
         self.image_to_edit = None
+
+        # Additional state for marking areas
+        self.marked_regions = []  # Stores marked regions (rectangles)
+        self.marking_mode = False
+
+
+        # Variables for selection
+        self.start_point = None
+        self.end_point = None
+        self.rect_item = None
+
 
         self.show_ui()
 
@@ -35,6 +48,8 @@ class ImageEditor(QMainWindow):
         self.setWindowTitle("Image Processor")
 
         self.label = QtWidgets.QLabel(self)
+        self.label.setAlignment(Qt.AlignCenter)
+
         self.label.setText("My First Label")
         self.label.move(50,50)
 
@@ -47,10 +62,16 @@ class ImageEditor(QMainWindow):
         grayscale_button.clicked.connect(self.edit_grayscale)
 
         warp_button = QPushButton('Content-Dependent Warping', central_widget)
-        warp_button.clicked.connect(self.content_dependent_warping)
+        # warp_button.clicked.connect(self.content_dependent_warping)
 
-        mark_button = QPushButton('Mark for Deletion or Resizing', central_widget)
-        mark_button.clicked.connect(self.mark_for_deletion_resizing)
+        self.mark_button = QPushButton('Mark for Deletion/Resizing OFF', central_widget)
+        self.mark_button.clicked.connect(self.toggle_marking_mode)
+
+        delete_button = QPushButton('Crop Region of Marked Areas', central_widget)
+        delete_button.clicked.connect(self.delete_area)
+
+        resize_button = QPushButton('Resize Marked Areas', central_widget)
+        resize_button.clicked.connect(self.resize_marked_areas)
 
         cartoon_button = QPushButton('Apply Cartoon Filter', central_widget)
         cartoon_button.clicked.connect(self.edit_cartoon_filter)
@@ -66,7 +87,9 @@ class ImageEditor(QMainWindow):
         layout.addWidget(load_button)
         layout.addWidget(grayscale_button)
         layout.addWidget(warp_button)
-        layout.addWidget(mark_button)
+        layout.addWidget(self.mark_button)
+        layout.addWidget(delete_button)
+        layout.addWidget(resize_button)
         layout.addWidget(cartoon_button)
         layout.addWidget(save_button)
         layout.addWidget(reset_button)
@@ -80,10 +103,45 @@ class ImageEditor(QMainWindow):
         self.loaded_program = True
         self.resizeEvent = self.on_resize
 
+    
+
+    def mouseHandler(self, source, event):
+        # handle mouse events for cropping
+        if event.type() == event.MouseButtonPress and event.button() == Qt.LeftButton:
+            self.startPoint = event.pos()
+            return True
+        
+        if event.type() == event.MouseMove and self.startPoint:
+            self.endPoint = event.pos()
+            self.rect = QRectF(QPointF(self.startPoint), QPointF(self.endPoint))
+            self.display_loaded_image()
+            return True
+        
+        if event.type() == event.MouseButtonRelease and event.button() == Qt.LeftButton:
+            self.endPoint = event.pos()
+            self.rect = QRectF(QPointF(self.startPoint), QPointF(self.endPoint))
+            self.startPoint = None
+
+            return True
+        
+        return False
+    
+    def drawRectangle(self, event):
+        # draw rectangle
+        if self.rectangle:
+            painter = QPainter(self.graphics_view.viewport())
+            painter.setPen(Qt.red)
+            painter.drawRect(self.rectangle)
+
+
+    
+
     def on_resize(self, event):
         if self.loaded_program != True:
             self.display_loaded_image()    
         
+
+
     # grab an image file 
     def load_image(self):
         options = QFileDialog.Options()
@@ -96,6 +154,8 @@ class ImageEditor(QMainWindow):
         if self.file_name:
             
             self.image_path = self.file_name
+            self.theImage = self.file_name
+            
             # self.original_image = ""
             self.display_loaded_image()
 
@@ -111,8 +171,13 @@ class ImageEditor(QMainWindow):
         msg_box.setText("No Image Loaded. Please Load an Image")
         msg_box.exec_()
 
+
+
+
+
     # show image on the screen
     def display_loaded_image(self):
+        # display original image or edited image
         if hasattr(self, 'image_path') and self.image_path or self.edited:
             if self.edited:
                 self.loaded_image = self.image_to_edit
@@ -133,7 +198,11 @@ class ImageEditor(QMainWindow):
             self.graphics_view.setScene(self.scene)
         else:
             # alert box for when no image is loaded
-            self.no_loaded_image
+            self.no_loaded_image()
+
+
+
+
 
     def save_image(self):
         if hasattr(self, 'image_path') and self.image_path:
@@ -146,14 +215,12 @@ class ImageEditor(QMainWindow):
                 else:
                     QMessageBox.warning(self, "Error", "Failed to save image")
             
-
     # grayscale filter
     def edit_grayscale(self):
         # load image into openCV format
         load_image = cv2.imread(self.file_name)
 
         if self.file_name:
-
             #convert image into greyscale
             image = cv2.cvtColor(load_image, cv2.COLOR_BGR2GRAY)
 
@@ -178,46 +245,19 @@ class ImageEditor(QMainWindow):
             print("just before display loaded image")
             self.display_loaded_image()
             
-                # img_gray = cv2.cvtColor(self.image_to_edit)
+            # img_gray = cv2.cvtColor(self.image_to_edit)
         else:
             # alert box for when no image is loaded
-            msg_box = QMessageBox()
-            msg_box.setWindowTitle("No Image Loaded")
-            msg_box.setText("pls bro")
-            msg_box.exec_()
+            self.no_loaded_image()
+
 
     # cartoon filter
     def edit_cartoon_filter(self):
 
-        if self.file_name:
-            load_image = cv2.imread(self.file_name)
-
-            # Convert the RGB image into grayscale
-            grey = cv2.cvtColor(load_image, cv2.COLOR_BGR2GRAY)
-            # Reduce noise with median blur
-            grey = cv2.medianBlur(grey, 5)
-            # Detect edges using adaptive thresholding
-            edges = cv2.adaptiveThreshold(grey, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 9)
-
-            # Compute gradients in the X and Y direction using the Sobel operator
-            grad_x = cv2.Sobel(grey, cv2.CV_64F, 1, 0, ksize=5)
-            grad_y = cv2.Sobel(grey, cv2.CV_64F, 0, 1, ksize=5)
-
-            # Compute the gradient magnitude and direction
-            magnitude = np.sqrt(grad_x**2 + grad_y**2)
-            direction = np.arctan2(grad_y, grad_x)
-
-            # Normalize the magnitude to a range of 0 to 255 for visualization purposes
-            magnitude = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
-
-            # Apply bilateral filtering on the original image
-            color = cv2.bilateralFilter(load_image, 10, 250, 250)
-            color = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
-
-            # Use the magnitude or direction (optionally) to influence the cartoon effect
-            # Here, we combine the edges with the color filtered image
-            cartoon = cv2.bitwise_and(color, color, mask=edges)
-
+        if self.theImage:
+            # calls module to cartoon filter
+            cartoon = Cartoon.cartoonize(self.theImage)
+        
             # Print or display the cartoon image
             height, width, channel = cartoon.shape
             bytesPerLine = 3 * width
@@ -228,67 +268,121 @@ class ImageEditor(QMainWindow):
             self.image_to_edit = QPixmap.fromImage(Q_image)
             self.edited = True
             self.display_loaded_image()
+
+        else:
+            # alert box for when no image is loaded
+            self.no_loaded_image()
+
+
+    def toggle_marking_mode(self):
+        if self.theImage:
+            # Toggles the marking mode to allow selecting regions
+            self.marking_mode = not self.marking_mode
+            if self.marking_mode:
+                print("Marking mode ON")
+                self.mark_button.setText("Mark for Deletion/Resizing ON")
+                self.graphics_view.setMouseTracking(True)
+                self.graphics_view.viewport().installEventFilter(self)
+                self.rect_item = None
+            else:
+                print("Marking mode OFF")
+                self.mark_button.setText("Mark for Deletion/Resizing: OFF")
+                self.graphics_view.setMouseTracking(False)
+                self.graphics_view.viewport().installEventFilter(self)
+                if self.rect_item:
+                    self.scene.removeItem(self.rect_item)
+                    self.rect_item = None
         else:
             self.no_loaded_image()
 
-    def content_dependent_warping(self):
-        print("Content-Dependent Warping")
+
+
+
+    def mouseEventHandler(self, source, event):
+        """Handle mouse events for selecting regions."""
+        if self.marking_mode:
+            if event.type() == event.MouseButtonPress and event.button() == Qt.LeftButton:
+                self.start_point = event.pos()
+                self.end_point = event.pos()
+
+                # Create or reset the rectangle item
+                if self.rect_item is None:
+                    self.rect_item = self.scene.addRect(QRectF(self.start_point, self.start_point), 
+                                                        QColor(255, 0, 0), 
+                                                        QColor(255, 0, 0, 50))  # Semi-transparent red
+                return True
+
+            elif event.type() == event.MouseMove and self.start_point:
+                self.end_point = event.pos()
+                # Update the rectangle item
+                self.rect_item.setRect(QRectF(self.start_point, self.end_point).normalized())
+                return True
+
+            elif event.type() == event.MouseButtonRelease and event.button() == Qt.LeftButton:
+                self.end_point = event.pos()
+                # Finalize the rectangle coordinates
+                self.rect_item.setRect(QRectF(self.start_point, self.end_point).normalized())
+                self.start_point = None
+                return True
+
+        return False
+
+
+
+
+
+    def delete_area(self):
+
         if self.file_name:
-            # Load the image
             load_image = cv2.imread(self.file_name)
-            image_gray = cv2.cvtColor(load_image, cv2.COLOR_BGR2GRAY)
+            """Delete the area outside the selected rectangle."""
+            if self.rect_item:
+                rect = self.rect_item.rect().toRect()
+                x1, y1 = int(rect.topLeft().x()), int(rect.topLeft().y())
+                x2, y2 = int(rect.bottomRight().x()), int(rect.bottomRight().y())
 
-            # Compute the energy map using the Sobel gradient
-            grad_x = cv2.Sobel(image_gray, cv2.CV_64F, 1, 0, ksize=3)
-            grad_y = cv2.Sobel(image_gray, cv2.CV_64F, 0, 1, ksize=3)
-            energy_map = np.abs(grad_x) + np.abs(grad_y)
+                # Create a mask of the same shape as the image
+                mask = np.zeros(load_image.shape, dtype=np.uint8)
 
-            # Initialize the cumulative energy map (for dynamic programming)
-            h, w = energy_map.shape
-            dp = np.copy(energy_map)
-            backtrack = np.zeros_like(dp, dtype=np.int32)
+                # Set the region inside the rectangle to white (or any color you want)
+                mask[y1:y2, x1:x2] = (255, 255, 255)
 
-            # Dynamic programming to calculate the minimum energy paths
-            for i in range(1, h):
-                for j in range(0, w):
-                    # Look at the three possible previous positions (above-left, above, above-right)
-                    min_cost = dp[i - 1, j]
-                    backtrack[i, j] = j
-                    if j > 0 and dp[i - 1, j - 1] < min_cost:
-                        min_cost = dp[i - 1, j - 1]
-                        backtrack[i, j] = j - 1
-                    if j < w - 1 and dp[i - 1, j + 1] < min_cost:
-                        min_cost = dp[i - 1, j + 1]
-                        backtrack[i, j] = j + 1
-                    dp[i, j] += min_cost
+                # Combine the mask with the original image using bitwise operations
+                load_image = cv2.bitwise_and(load_image, mask)
+                print("load image: ", load_image)
+                # Update the displayed image
 
-            # Find the path of minimum energy
-            seam = np.zeros(h, dtype=np.int32)
-            seam[-1] = np.argmin(dp[-1])
-            for i in range(h - 2, -1, -1):
-                seam[i] = backtrack[i + 1, seam[i + 1]]
+                """Save the cropped image without black bars."""
+                rect = self.rect_item.rect().toRect()
+                x1, y1 = int(rect.topLeft().x()), int(rect.topLeft().y())
+                x2, y2 = int(rect.bottomRight().x()), int(rect.bottomRight().y())
 
-            # Create a new image by warping or removing the seam
-            warped_image = np.zeros((h, w - 1, 3), dtype=np.uint8)
-            for i in range(h):
-                warped_image[i, :, :] = np.delete(load_image[i, :, :], seam[i], 0)
+                # Ensure coordinates are within image boundaries
+                x1 = max(x1, 0)
+                y1 = max(y1, 0)
+                x2 = min(x2, load_image.shape[1])
+                y2 = min(y2, load_image.shape[0])
 
-            # Convert the result to QPixmap to display in the GUI
-            height, width, channel = warped_image.shape
-            bytes_per_line = 3 * width
-            q_image = QImage(warped_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
+                # Crop the image to the selected rectangle
+                cropped_image = load_image[y1:y2, x1:x2]
+                
+                cv2.imwrite("croppedImg.png", cropped_image)
+                
+                cropped = QPixmap("croppedImg.png")
+                self.image_to_edit = cropped
+                self.edited = True
 
-            # Update the image to edit and display it
-            self.image_to_edit = QPixmap.fromImage(q_image)
-            self.edited = True
-            self.display_loaded_image()
+                self.marking_mode = False
 
+                self.display_loaded_image() 
+
+                # self.display_loaded_image(cropped_image)
+
+                # # Remove the rectangle item from the scene
+                # self.scene.removeItem(self.rect_item)
+                # self.rect_item = None
         else:
             self.no_loaded_image()
-
-
-    def mark_for_deletion_resizing(self):
-        print("Mark for deletion and resizing")
 
 
 # main loop

@@ -1,0 +1,11 @@
+pyqt tutorials
+https://www.youtube.com/watch?v=Vde5SH8e1OQ&list=PLzMcBGfZo4-lB8MZfHPLTEHO9zJDDLpYj&index=1
+https://www.techwithtim.net/tutorials/python-module-walk-throughs/pyqt5-tutorial/images
+
+grayscale
+https://www.geeksforgeeks.org/python-grayscaling-of-images-using-opencv/
+
+cartoon filter python
+https://dev.to/ethand91/cartoon-filter-using-opencv-and-python-3nj5
+
+ui built in qt designer
