@@ -456,6 +456,7 @@ class ImageProcessor(QMainWindow):
 
     # handle content dependent warping
     def content_dependent_warping(self):
+        
         dialog = WarpingInputBox()
         if dialog.exec_() == QDialog.Accepted:
             # import parameters set from dialog boc
@@ -469,13 +470,13 @@ class ImageProcessor(QMainWindow):
             # time.sleep(2)
             msg.exec_()
 
-            # start seam carving based on options set
+            # START SEAM CARVING based on options set
             if no_mask:
+                # DEBUG COMMENTS
                 # obj = SeamCarver(self.image_path, new_height, new_width)
                 # obj.save_result("output/output.png")
                 output = cv2.imread("output/output.png")
                 cv2.imshow("Output", output)
-
                 cv2.waitKey(0)
                 # whether or not to use the warped image to see on screen
                 use_image = QMessageBox.information(self, "Information",
@@ -490,8 +491,14 @@ class ImageProcessor(QMainWindow):
                 obj.save_result("output/output.png")
                 output = cv2.imread("output/output.png")
                 cv2.imshow("Output", output)
-                
                 cv2.waitKey(0)
+
+                use_image = QMessageBox.information(self, "Information",
+                                                    "Use warped image?",
+                                                    QMessageBox.Yes | QMessageBox.No
+                                                    )
+                if use_image == QMessageBox.Yes:
+                    self.load_warped("output/output.png")
 
             elif remove:
                 obj = SeamCarver(self.image_path, 0, 0, object_mask="mask/mask.jpg")
@@ -499,6 +506,13 @@ class ImageProcessor(QMainWindow):
                 output = cv2.imread("output/output.png")
                 cv2.imshow("Output", output)
                 cv2.waitKey(0)
+
+                use_image = QMessageBox.information(self, "Information",
+                                                    "Use warped image?",
+                                                    QMessageBox.Yes | QMessageBox.No
+                                                    )
+                if use_image == QMessageBox.Yes:
+                    self.load_warped("output/output.png")
 
             
 
