@@ -1,13 +1,128 @@
 from PyQt5 import QtWidgets
-from PyQt5.QtWidgets import QProgressDialog, QGraphicsPixmapItem, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, QFileDialog, QGraphicsView, QVBoxLayout, QApplication, QMainWindow, QWidget, QPushButton
-from PyQt5.QtGui import QPixmap, QImage, QPen, QPainter, QColor
+from PyQt5.QtWidgets import QStyle, QLabel, QRadioButton, QDialog, QDialogButtonBox, QLineEdit, QGraphicsPixmapItem, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, QFileDialog, QGraphicsView, QVBoxLayout, QApplication, QMainWindow, QWidget, QPushButton
+from PyQt5.QtGui import QPixmap, QImage, QPen, QPainter, QColor, QIcon
 from PyQt5.QtCore import Qt, QRect, QRectF, QPointF
 import numpy as np
 import cv2
 import sys
 import Cartoon
+from seam_carving import SeamCarver
+import time
 
-class ImageEditor(QMainWindow):
+
+class WarpingInputBox(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Warping")
+
+        icon = QApplication.style().standardIcon(QStyle.SP_MessageBoxInformation)
+        self.setWindowIcon(icon)
+
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        
+        # Layout and Widgets
+        layout = QVBoxLayout()
+        
+
+        # First Input
+        self.input1 = QLineEdit(self)
+        self.input1.setPlaceholderText("Enter Width")
+        layout.addWidget(self.input1)
+
+        # Second Input
+        self.input2 = QLineEdit(self)
+        self.input2.setPlaceholderText("Enter Height")
+        layout.addWidget(self.input2)
+
+        self.label = QLabel(self)
+        self.label.setText("Remove or Protect Object:")
+        layout.addWidget(self.label)
+
+        self.mask_button = QPushButton(self)
+        self.mask_button.setText("Mark Object")
+        layout.addWidget(self.mask_button)
+
+
+        self.no_mask = QRadioButton("None", self)
+        layout.addWidget(self.no_mask)
+        self.no_mask.toggle()
+
+        self.protect = QRadioButton("Protect Object", self)
+        layout.addWidget(self.protect)
+        self.protect.toggled.connect(self.checkToggle)
+        
+
+        print("Protect Toggled: ", self.protect.toggled)
+        self.remove = QRadioButton("Remove Object", self)
+        layout.addWidget(self.remove)
+
+        
+        self.confirmed = False
+        self.objectMarked = False
+
+        # OK and Cancel Buttons
+        self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttonBox.accepted.connect(self.validateAndConfirm)
+        self.buttonBox.rejected.connect(self.reject)
+        layout.addWidget(self.buttonBox)
+
+        self.setLayout(layout)
+
+    def checkNumber(self, number):
+        if isinstance(number, str) and number.isdigit():
+            return True
+        else:
+            return False
+                
+    
+    def validateAndConfirm(self):
+        width = self.input1.text()
+        height = self.input2.text()
+
+        if width == "" or height == "":
+            QMessageBox.warning(self, "Empty Values!",
+                                                "Please do enter all values",
+                                                QMessageBox.Ok)
+            
+        if (self.protect.isChecked() or self.remove.isChecked()) and not self.objectMarked:
+            QMessageBox.warning(self, "No Marked Object in Image",
+                                                "Please make sure to Mark the object if protect or remove is selected",
+                                                QMessageBox.Ok)
+        else:
+            if self.checkNumber(width) and self.checkNumber(height):
+                
+                if int(width) > 2000 or int(height) > 2000:
+                    QMessageBox.warning(self, "Values out of range !",
+                                                    "Please do not enter values > 2000",
+                                                    QMessageBox.Ok)
+                        
+                else:
+                    confirmBox = QMessageBox.question(self,
+                            "Confirm Parameters",
+                            f"Are you sure you want to proceed?\nNew dimensions:\nW: {width} H: {height}\n{self.checkToggle()}",
+                            QMessageBox.Yes | QMessageBox.No
+                            )
+                    
+                    if confirmBox == QMessageBox.Yes:
+                        self.accept()
+                        self.confirmed = True
+                        print(f"Confirmed {width}x{height}  ")
+
+            
+
+    def getInputs(self):
+        if self.confirmed: 
+            return int(self.input1.text()), int(self.input2.text()), self.protect.isChecked(), self.remove.isChecked(), self.no_mask.isChecked()
+    
+    def checkToggle(self):
+        if self.protect.isChecked():
+            return "Protect Object"
+        elif self.remove.isChecked():
+            return "Remove Object"
+        else:
+            return "No Option Set"
+
+class ImageProcessor(QMainWindow):
 
     # Class Constructor with variables
     def __init__(self):
@@ -43,9 +158,9 @@ class ImageEditor(QMainWindow):
         
         central_widget = QWidget()
 
-        win = QMainWindow()
-        self.setGeometry(200, 200, 300, 300)
-        self.setWindowTitle("Image Processor")
+        # win = QMainWindow()
+        # self.setGeometry(200, 200, 300, 300)
+        # self.setWindowTitle("Image Processor")
 
         self.label = QtWidgets.QLabel(self)
         self.label.setAlignment(Qt.AlignCenter)
@@ -62,16 +177,8 @@ class ImageEditor(QMainWindow):
         grayscale_button.clicked.connect(self.edit_grayscale)
 
         warp_button = QPushButton('Content-Dependent Warping', central_widget)
-        # warp_button.clicked.connect(self.content_dependent_warping)
+        warp_button.clicked.connect(self.content_dependent_warping)
 
-        self.mark_button = QPushButton('Mark for Deletion/Resizing OFF', central_widget)
-        self.mark_button.clicked.connect(self.toggle_marking_mode)
-
-        delete_button = QPushButton('Crop Region of Marked Areas', central_widget)
-        delete_button.clicked.connect(self.delete_area)
-
-        resize_button = QPushButton('Resize Marked Areas', central_widget)
-        resize_button.clicked.connect(self.resize_marked_areas)
 
         cartoon_button = QPushButton('Apply Cartoon Filter', central_widget)
         cartoon_button.clicked.connect(self.edit_cartoon_filter)
@@ -87,9 +194,6 @@ class ImageEditor(QMainWindow):
         layout.addWidget(load_button)
         layout.addWidget(grayscale_button)
         layout.addWidget(warp_button)
-        layout.addWidget(self.mark_button)
-        layout.addWidget(delete_button)
-        layout.addWidget(resize_button)
         layout.addWidget(cartoon_button)
         layout.addWidget(save_button)
         layout.addWidget(reset_button)
@@ -97,8 +201,9 @@ class ImageEditor(QMainWindow):
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
 
-        self.setGeometry(100, 100, 1000, 800)
-        self.setWindowTitle('Image Editor')
+        self.setGeometry(500, 150, 800, 800)
+        self.setWindowTitle('Image Processor')
+        self.setWindowIcon(QIcon("files/imgprocicon.png"))
 
         self.loaded_program = True
         self.resizeEvent = self.on_resize
@@ -144,13 +249,13 @@ class ImageEditor(QMainWindow):
 
     # grab an image file 
     def load_image(self):
+
         options = QFileDialog.Options()
         self.file_name, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Image Files (*.png *.jpg *.jpeg *.bmp *.gif *.tiff *.svg);;All Files (*)", options=options)
         print("loaded: ", self.file_name) # debug
 
         # debug
         # print("image to edit: ", self.image_to_edit) 
-
         if self.file_name:
             
             self.image_path = self.file_name
@@ -158,10 +263,27 @@ class ImageEditor(QMainWindow):
             
             # self.original_image = ""
             self.display_loaded_image()
+    
+    def load_warped(self, file_name):
+            print("load warped: ", file_name)
+            self.image_path = file_name
+            self.file_name = file_name
+            self.theImage = file_name
+            
+            # self.original_image = ""
+            self.display_loaded_image()
+
+    # def load_image(self, warped):
+    #     self.image_path = warped
+    #     self.theImage = warped
+        
+    #     # self.original_image = ""
+    #     self.display_loaded_image()
 
     def reset_image(self):
         self.image_to_edit = None
         self.edited = False
+        self.marking_mode = False
         self.display_loaded_image()
 
     def no_loaded_image(self):
@@ -177,6 +299,8 @@ class ImageEditor(QMainWindow):
 
     # show image on the screen
     def display_loaded_image(self):
+
+
         # display original image or edited image
         if hasattr(self, 'image_path') and self.image_path or self.edited:
             if self.edited:
@@ -298,7 +422,7 @@ class ImageEditor(QMainWindow):
 
 
 
-    def mouseEventHandler(self, source, event):
+    def eventFilter(self, source, event):
         """Handle mouse events for selecting regions."""
         if self.marking_mode:
             if event.type() == event.MouseButtonPress and event.button() == Qt.LeftButton:
@@ -330,65 +454,63 @@ class ImageEditor(QMainWindow):
 
 
 
+    # handle content dependent warping
+    def content_dependent_warping(self):
+        dialog = WarpingInputBox()
+        if dialog.exec_() == QDialog.Accepted:
+            # import parameters set from dialog boc
+            new_width, new_height, protect, remove, no_mask = dialog.getInputs()
 
-    def delete_area(self):
+            # debug: display the chosen parameters
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Information)
+            msg.setText(f"New Width: {new_width}, Height: {new_height}\n{dialog.checkToggle()}\n{protect}\n{remove}\n{no_mask}")
+            msg.setWindowTitle("Chosen Parameters:")
+            # time.sleep(2)
+            msg.exec_()
 
-        if self.file_name:
-            load_image = cv2.imread(self.file_name)
-            """Delete the area outside the selected rectangle."""
-            if self.rect_item:
-                rect = self.rect_item.rect().toRect()
-                x1, y1 = int(rect.topLeft().x()), int(rect.topLeft().y())
-                x2, y2 = int(rect.bottomRight().x()), int(rect.bottomRight().y())
+            # start seam carving based on options set
+            if no_mask:
+                # obj = SeamCarver(self.image_path, new_height, new_width)
+                # obj.save_result("output/output.png")
+                output = cv2.imread("output/output.png")
+                cv2.imshow("Output", output)
 
-                # Create a mask of the same shape as the image
-                mask = np.zeros(load_image.shape, dtype=np.uint8)
+                cv2.waitKey(0)
+                # whether or not to use the warped image to see on screen
+                use_image = QMessageBox.information(self, "Information",
+                                                    "Use warped image?",
+                                                    QMessageBox.Yes | QMessageBox.No
+                                                    )
+                if use_image == QMessageBox.Yes:
+                    self.load_warped("output/output.png")
 
-                # Set the region inside the rectangle to white (or any color you want)
-                mask[y1:y2, x1:x2] = (255, 255, 255)
-
-                # Combine the mask with the original image using bitwise operations
-                load_image = cv2.bitwise_and(load_image, mask)
-                print("load image: ", load_image)
-                # Update the displayed image
-
-                """Save the cropped image without black bars."""
-                rect = self.rect_item.rect().toRect()
-                x1, y1 = int(rect.topLeft().x()), int(rect.topLeft().y())
-                x2, y2 = int(rect.bottomRight().x()), int(rect.bottomRight().y())
-
-                # Ensure coordinates are within image boundaries
-                x1 = max(x1, 0)
-                y1 = max(y1, 0)
-                x2 = min(x2, load_image.shape[1])
-                y2 = min(y2, load_image.shape[0])
-
-                # Crop the image to the selected rectangle
-                cropped_image = load_image[y1:y2, x1:x2]
+            elif protect:
+                obj = SeamCarver(self.image_path, new_height, new_width, protect_mask="mask/mask.jpg")
+                obj.save_result("output/output.png")
+                output = cv2.imread("output/output.png")
+                cv2.imshow("Output", output)
                 
-                cv2.imwrite("croppedImg.png", cropped_image)
-                
-                cropped = QPixmap("croppedImg.png")
-                self.image_to_edit = cropped
-                self.edited = True
+                cv2.waitKey(0)
 
-                self.marking_mode = False
+            elif remove:
+                obj = SeamCarver(self.image_path, 0, 0, object_mask="mask/mask.jpg")
+                obj.save_result("output/output.png")
+                output = cv2.imread("output/output.png")
+                cv2.imshow("Output", output)
+                cv2.waitKey(0)
 
-                self.display_loaded_image() 
+            
 
-                # self.display_loaded_image(cropped_image)
+            
 
-                # # Remove the rectangle item from the scene
-                # self.scene.removeItem(self.rect_item)
-                # self.rect_item = None
-        else:
-            self.no_loaded_image()
+        
 
 
 # main loop
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    editor = ImageEditor()
+    editor = ImageProcessor()
     editor.show()
     sys.exit(app.exec_())
 

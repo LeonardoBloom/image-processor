@@ -8,4 +8,5 @@ https://www.geeksforgeeks.org/python-grayscaling-of-images-using-opencv/
 cartoon filter python
 https://dev.to/ethand91/cartoon-filter-using-opencv-and-python-3nj5
 
-ui built in qt designer
+seam carving
+https://github.com/vivianhylee/seam-carving
