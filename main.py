@@ -8,6 +8,7 @@ import sys
 import Cartoon
 from seam_carving import SeamCarver
 from drawMask import Masker
+import os
 import time
 import pyqtspinner
 
@@ -549,6 +550,10 @@ class ImageProcessor(QMainWindow):
                                                     )
                 if use_image == QMessageBox.Yes:
                     self.load_warped("output/output.png")
+                
+                script_directory = os.path.dirname(os.path.abspath(__file__))
+                file_path = os.path.join(script_directory, 'mask', 'mask.jpg')
+                os.remove(file_path)
 
             elif removeobj:
                 obj = SeamCarver(self.image_path, 0, 0, object_mask="mask/mask.jpg")
@@ -563,6 +568,10 @@ class ImageProcessor(QMainWindow):
                                                     )
                 if use_image == QMessageBox.Yes:
                     self.load_warped("output/output.png")
+                
+                script_directory = os.path.dirname(os.path.abspath(__file__))
+                file_path = os.path.join(script_directory, 'mask', 'mask.jpg')
+                os.remove(file_path)
 
             
 
