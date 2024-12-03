@@ -15,6 +15,7 @@ class SeamCarver:
 
         # keep tracking resulting image
         self.out_image = np.copy(self.in_image)
+        
 
         # object removal --> self.object = True
         self.object = (object_mask != '')
@@ -48,6 +49,8 @@ class SeamCarver:
         If object mask is provided --> object removal function will be executed
         else --> seam carving function (image retargeting) will be process
         """
+
+        print("Started Seam Carving...")
         if self.object:
             self.object_removal()
         else:

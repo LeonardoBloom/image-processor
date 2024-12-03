@@ -1,5 +1,5 @@
 from PyQt5 import QtWidgets
-from PyQt5.QtWidgets import QStyle, QLabel, QRadioButton, QDialog, QDialogButtonBox, QLineEdit, QGraphicsPixmapItem, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, QFileDialog, QGraphicsView, QVBoxLayout, QApplication, QMainWindow, QWidget, QPushButton
+from PyQt5.QtWidgets import QProgressDialog, QProgressBar, QStyle, QLabel, QRadioButton, QDialog, QDialogButtonBox, QLineEdit, QGraphicsPixmapItem, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, QFileDialog, QGraphicsView, QVBoxLayout, QApplication, QMainWindow, QWidget, QPushButton
 from PyQt5.QtGui import QPixmap, QImage, QPen, QPainter, QColor, QIcon
 from PyQt5.QtCore import Qt, QRect, QRectF, QPointF
 import numpy as np
@@ -7,18 +7,25 @@ import cv2
 import sys
 import Cartoon
 from seam_carving import SeamCarver
+from drawMask import Masker
 import time
+import pyqtspinner
+
 
 
 class WarpingInputBox(QDialog):
-    def __init__(self):
+    def __init__(self, theImage):
         super().__init__()
         self.setWindowTitle("Warping")
+
+        
+        self.theImage = theImage
+        self.objectMarked = False
 
         icon = QApplication.style().standardIcon(QStyle.SP_MessageBoxInformation)
         self.setWindowIcon(icon)
 
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowFlags(self.windowFlags() & Qt.WindowContextHelpButtonHint)
         
         # Layout and Widgets
         layout = QVBoxLayout()
@@ -38,9 +45,13 @@ class WarpingInputBox(QDialog):
         self.label.setText("Remove or Protect Object:")
         layout.addWidget(self.label)
 
+        def doMasker():
+            self.objectMarked = Masker(self.theImage)
+
         self.mask_button = QPushButton(self)
         self.mask_button.setText("Mark Object")
         layout.addWidget(self.mask_button)
+        self.mask_button.clicked.connect(lambda: doMasker())
 
 
         self.no_mask = QRadioButton("None", self)
@@ -53,12 +64,12 @@ class WarpingInputBox(QDialog):
         
 
         print("Protect Toggled: ", self.protect.toggled)
-        self.remove = QRadioButton("Remove Object", self)
-        layout.addWidget(self.remove)
+        self.removeobj = QRadioButton("Remove Object", self)
+        layout.addWidget(self.removeobj)
 
         
         self.confirmed = False
-        self.objectMarked = False
+        
 
         # OK and Cancel Buttons
         self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -84,7 +95,7 @@ class WarpingInputBox(QDialog):
                                                 "Please do enter all values",
                                                 QMessageBox.Ok)
             
-        if (self.protect.isChecked() or self.remove.isChecked()) and not self.objectMarked:
+        if (self.protect.isChecked() or self.removeobj.isChecked()) and not self.objectMarked:
             QMessageBox.warning(self, "No Marked Object in Image",
                                                 "Please make sure to Mark the object if protect or remove is selected",
                                                 QMessageBox.Ok)
@@ -112,17 +123,18 @@ class WarpingInputBox(QDialog):
 
     def getInputs(self):
         if self.confirmed: 
-            return int(self.input1.text()), int(self.input2.text()), self.protect.isChecked(), self.remove.isChecked(), self.no_mask.isChecked()
+            return int(self.input1.text()), int(self.input2.text()), self.protect.isChecked(), self.removeobj.isChecked(), self.no_mask.isChecked()
     
     def checkToggle(self):
         if self.protect.isChecked():
             return "Protect Object"
-        elif self.remove.isChecked():
+        elif self.removeobj.isChecked():
             return "Remove Object"
         else:
             return "No Option Set"
 
 class ImageProcessor(QMainWindow):
+
 
     # Class Constructor with variables
     def __init__(self):
@@ -153,10 +165,27 @@ class ImageProcessor(QMainWindow):
 
         self.show_ui()
 
+    def getMaskImage(self):
+        return self.theImage
+    
     # BUILDING THE UI
     def show_ui(self):
         
         central_widget = QWidget()
+
+        # WaitingSpinner(parent,
+        #         roundness=100.0,
+        #         opacity=20.94,
+        #         fade=80.45,
+        #         radius=29,
+        #         lines=137,
+        #         line_length=23,
+        #         line_width=8,
+        #         speed=0.82,
+        #         color=(0, 0, 0)
+        #     )
+        # self.spinner = QtWaitingSpinner(self, True, True, Qt.ApplicationModal)
+        
 
         # win = QMainWindow()
         # self.setGeometry(200, 200, 300, 300)
@@ -457,28 +486,49 @@ class ImageProcessor(QMainWindow):
     # handle content dependent warping
     def content_dependent_warping(self):
         
-        dialog = WarpingInputBox()
+        dialog = WarpingInputBox(self.theImage)
         if dialog.exec_() == QDialog.Accepted:
             # import parameters set from dialog boc
-            new_width, new_height, protect, remove, no_mask = dialog.getInputs()
+            new_width, new_height, protect, removeobj, no_mask = dialog.getInputs()
 
             # debug: display the chosen parameters
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Information)
-            msg.setText(f"New Width: {new_width}, Height: {new_height}\n{dialog.checkToggle()}\n{protect}\n{remove}\n{no_mask}")
+            msg.setText(f"from {cv2.imread(self.image_path).shape[1]} to  Width: {new_width}, Height: {new_height}\n{dialog.checkToggle()}\n{protect}\n{removeobj}\n{no_mask}")
             msg.setWindowTitle("Chosen Parameters:")
             # time.sleep(2)
             msg.exec_()
 
+            image = cv2.imread(self.image_path)
+            target_h = image.shape[0] - new_height
+            target_w = image.shape[1] - new_width
+
+            frames = 100
+
+            grad_h = target_h / frames
+            grad_w = target_w / frames
+
             # START SEAM CARVING based on options set
             if no_mask:
                 # DEBUG COMMENTS
-                # obj = SeamCarver(self.image_path, new_height, new_width)
-                # obj.save_result("output/output.png")
+                
+                
+                obj = SeamCarver(self.image_path, new_height, new_width)
+                obj.save_result("output/output.png")
                 output = cv2.imread("output/output.png")
                 cv2.imshow("Output", output)
-                cv2.waitKey(0)
-                # whether or not to use the warped image to see on screen
+                
+                # for x in range(frames):
+                    
+                #     obj = SeamCarver(self.image_path, (image.shape[0] - (grad_h *x)), (image.shape[1] - (grad_w* x)))
+                #     obj.save_result("output/output.png")
+                #     output = cv2.imread("output/output.png")
+                #     cv2.imshow("Output", output)
+                #     cv2.waitKey(1)
+
+                QMessageBox.information(self, "Done!", "Your image is ready !", QMessageBox.Ok)
+
+                # whether or not to use the warped image to see on screen for further editing
                 use_image = QMessageBox.information(self, "Information",
                                                     "Use warped image?",
                                                     QMessageBox.Yes | QMessageBox.No
@@ -500,7 +550,7 @@ class ImageProcessor(QMainWindow):
                 if use_image == QMessageBox.Yes:
                     self.load_warped("output/output.png")
 
-            elif remove:
+            elif removeobj:
                 obj = SeamCarver(self.image_path, 0, 0, object_mask="mask/mask.jpg")
                 obj.save_result("output/output.png")
                 output = cv2.imread("output/output.png")
